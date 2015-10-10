@@ -201,8 +201,8 @@ static void secp256k1_ecmult_gen_blind(secp256k1_ecmult_gen_context *ctx, const 
     memset(nonce32, 0, 32);
     secp256k1_ecmult_gen(ctx, &gb, &b);
     secp256k1_scalar_negate(&b, &b);
-    ctx->blind = b;
-    ctx->initial = gb;
+    memcpy(&ctx->blind, &b, sizeof(ctx->blind));
+    memcpy(&ctx->initial, &gb, sizeof(ctx->initial));
     secp256k1_scalar_clear(&b);
     secp256k1_gej_clear(&gb);
 }
