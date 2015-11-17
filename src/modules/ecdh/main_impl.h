@@ -46,7 +46,6 @@ int secp256k1_ecdh(const secp256k1_context* ctx, unsigned char *output, const se
         ret = 0;
     } else {
         unsigned char x[32];
-        unsigned char y[32];
 
         secp256k1_ecmult_const(&res, &pt, &s, 256);
         secp256k1_ge_set_gej(&pt, &res);
@@ -55,9 +54,21 @@ int secp256k1_ecdh(const secp256k1_context* ctx, unsigned char *output, const se
         secp256k1_fe_normalize(&pt.x);
         secp256k1_fe_normalize(&pt.y);
         secp256k1_fe_get_b32(x, &pt.x);
-        secp256k1_fe_get_b32(y, &pt.y);
-
-        ret = hashfp(output, x, y, data);
+        /*
+        // BitBox patch does not use hash function in ecdh implementation
+        //
+        // NodeJS Crypto ECDH (2FA smartphone pairing) uses the x coordinate
+        // intead of the compressed key as the shared secret. So do not SHA
+        // hash here, return the compressed key, and decide how to hash in the
+        // calling code.
+        //unsigned char y[32];
+        //secp256k1_fe_get_b32(y, &pt.y);
+        //ret = hashfp(output, x, y, data);
+        */
+        (void)data;
+        output[0] = 0x02 | secp256k1_fe_is_odd(&pt.y);
+        memcpy(output + 1, x, sizeof(x));
+        ret = 1;
     }
 
     secp256k1_scalar_clear(&s);

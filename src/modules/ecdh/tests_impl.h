@@ -17,10 +17,13 @@ int ecdh_hash_function_test_fail(unsigned char *output, const unsigned char *x, 
 
 int ecdh_hash_function_custom(unsigned char *output, const unsigned char *x, const unsigned char *y, void *data) {
     (void)data;
-    /* Save x and y as uncompressed public key */
-    output[0] = 0x04;
+    (void)y;
+    /*
+     * BitBox patch does not use hash function in ecdh implementation
+     * Save as compressed public key
+     */
+    output[0] = 0x02;
     memcpy(output + 1, x, 32);
-    memcpy(output + 33, y, 32);
     return 1;
 }
 
@@ -61,11 +64,9 @@ void test_ecdh_generator_basepoint(void) {
     s_one[31] = 1;
     /* Check against pubkey creation when the basepoint is the generator */
     for (i = 0; i < 100; ++i) {
-        secp256k1_sha256 sha;
         unsigned char s_b32[32];
-        unsigned char output_ecdh[65];
-        unsigned char output_ser[32];
-        unsigned char point_ser[65];
+        unsigned char point_ser[33];
+        unsigned char output_ecdh[33];
         size_t point_ser_len = sizeof(point_ser);
         secp256k1_scalar s;
 
@@ -78,19 +79,31 @@ void test_ecdh_generator_basepoint(void) {
         /* compute using ECDH function with custom hash function */
         CHECK(secp256k1_ecdh(ctx, output_ecdh, &point[0], s_b32, ecdh_hash_function_custom, NULL) == 1);
         /* compute "explicitly" */
-        CHECK(secp256k1_ec_pubkey_serialize(ctx, point_ser, &point_ser_len, &point[1], SECP256K1_EC_UNCOMPRESSED) == 1);
+        CHECK(secp256k1_ec_pubkey_serialize(ctx, point_ser, &point_ser_len, &point[1], SECP256K1_EC_COMPRESSED) == 1);
         /* compare */
-        CHECK(memcmp(output_ecdh, point_ser, 65) == 0);
+        CHECK(memcmp(output_ecdh, point_ser, sizeof(point_ser)) == 0);
 
         /* compute using ECDH function with default hash function */
         CHECK(secp256k1_ecdh(ctx, output_ecdh, &point[0], s_b32, NULL, NULL) == 1);
         /* compute "explicitly" */
         CHECK(secp256k1_ec_pubkey_serialize(ctx, point_ser, &point_ser_len, &point[1], SECP256K1_EC_COMPRESSED) == 1);
-        secp256k1_sha256_initialize(&sha);
-        secp256k1_sha256_write(&sha, point_ser, point_ser_len);
-        secp256k1_sha256_finalize(&sha, output_ser);
-        /* compare */
-        CHECK(memcmp(output_ecdh, output_ser, 32) == 0);
+
+        /*
+        // BitBox patch does not use hash function in ecdh implementation
+        //
+        // NodeJS Crypto ECDH (2FA smartphone pairing) uses the x coordinate
+        // intead of the compressed key as the shared secret. So do not SHA
+        // hash here, return the compressed key, and decide how to hash in the
+        // calling code.
+        //secp256k1_sha256_t sha;
+        //unsigned char output_ser[32];
+        //secp256k1_sha256_initialize(&sha);
+        //secp256k1_sha256_write(&sha, point_ser, point_ser_len);
+        //secp256k1_sha256_finalize(&sha, output_ser);
+        / * compare * /
+        //CHECK(memcmp(output_ecdh, output_ser, 32) == 0);
+        */
+        CHECK(memcmp(output_ecdh, point_ser, sizeof(point_ser)) == 0);
     }
 }
 
@@ -120,7 +133,9 @@ void test_bad_scalar(void) {
     CHECK(secp256k1_ecdh(ctx, output, &point, s_overflow, NULL, NULL) == 1);
 
     /* Hash function failure results in ecdh failure */
+    /* BitBox patch does not use hash function in ecdh implementation
     CHECK(secp256k1_ecdh(ctx, output, &point, s_overflow, ecdh_hash_function_test_fail, NULL) == 0);
+    */
 }
 
 void run_ecdh_tests(void) {
