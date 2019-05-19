@@ -20,7 +20,7 @@ static void secp256k1_ecmult_gen_context_init(secp256k1_ecmult_gen_context *ctx)
 
 static void secp256k1_ecmult_gen_context_build(secp256k1_ecmult_gen_context *ctx, const secp256k1_callback* cb) {
 #ifndef USE_ECMULT_STATIC_PRECOMPUTATION
-    secp256k1_ge prec[1024];
+    secp256k1_ge prec[ECMULT_GEN_PREC_N * ECMULT_GEN_PREC_G];
     secp256k1_gej gj;
     secp256k1_gej nums_gej;
     int i, j;
@@ -30,7 +30,7 @@ static void secp256k1_ecmult_gen_context_build(secp256k1_ecmult_gen_context *ctx
         return;
     }
 #ifndef USE_ECMULT_STATIC_PRECOMPUTATION
-    ctx->prec = (secp256k1_ge_storage (*)[64][16])checked_malloc(cb, sizeof(*ctx->prec));
+    ctx->prec = (secp256k1_ge_storage (*)[ECMULT_GEN_PREC_N][ECMULT_GEN_PREC_G])checked_malloc(cb, sizeof(*ctx->prec));
 
     /* get the generator */
     secp256k1_gej_set_ge(&gj, &secp256k1_ge_const_g);
@@ -54,39 +54,39 @@ static void secp256k1_ecmult_gen_context_build(secp256k1_ecmult_gen_context *ctx
 
     /* compute prec. */
     {
-        secp256k1_gej precj[1024]; /* Jacobian versions of prec. */
+        secp256k1_gej precj[ECMULT_GEN_PREC_N * ECMULT_GEN_PREC_G]; /* Jacobian versions of prec. */
         secp256k1_gej gbase;
         secp256k1_gej numsbase;
         gbase = gj; /* 16^j * G */
         numsbase = nums_gej; /* 2^j * nums. */
-        for (j = 0; j < 64; j++) {
+        for (j = 0; j < ECMULT_GEN_PREC_N; j++) {
             /* Set precj[j*16 .. j*16+15] to (numsbase, numsbase + gbase, ..., numsbase + 15*gbase). */
-            precj[j*16] = numsbase;
-            for (i = 1; i < 16; i++) {
-                secp256k1_gej_add_var(&precj[j*16 + i], &precj[j*16 + i - 1], &gbase, NULL);
+            precj[j*ECMULT_GEN_PREC_G] = numsbase;
+            for (i = 1; i < ECMULT_GEN_PREC_G; i++) {
+                secp256k1_gej_add_var(&precj[j*ECMULT_GEN_PREC_G + i], &precj[j*ECMULT_GEN_PREC_G + i - 1], &gbase, NULL);
             }
             /* Multiply gbase by 16. */
-            for (i = 0; i < 4; i++) {
+            for (i = 0; i < ECMULT_GEN_PREC_B; i++) {
                 secp256k1_gej_double_var(&gbase, &gbase, NULL);
             }
             /* Multiply numbase by 2. */
             secp256k1_gej_double_var(&numsbase, &numsbase, NULL);
-            if (j == 62) {
+            if (j == ECMULT_GEN_PREC_N - 2) {
                 /* In the last iteration, numsbase is (1 - 2^j) * nums instead. */
                 secp256k1_gej_neg(&numsbase, &numsbase);
                 secp256k1_gej_add_var(&numsbase, &numsbase, &nums_gej, NULL);
             }
         }
-        secp256k1_ge_set_all_gej_var(prec, precj, 1024);
+        secp256k1_ge_set_all_gej_var(prec, precj, ECMULT_GEN_PREC_N * ECMULT_GEN_PREC_G);
     }
-    for (j = 0; j < 64; j++) {
-        for (i = 0; i < 16; i++) {
-            secp256k1_ge_to_storage(&(*ctx->prec)[j][i], &prec[j*16 + i]);
+    for (j = 0; j < ECMULT_GEN_PREC_N; j++) {
+        for (i = 0; i < ECMULT_GEN_PREC_G; i++) {
+            secp256k1_ge_to_storage(&(*ctx->prec)[j][i], &prec[j*ECMULT_GEN_PREC_G + i]);
         }
     }
 #else
     (void)cb;
-    ctx->prec = (secp256k1_ge_storage (*)[64][16])secp256k1_ecmult_static_context;
+    ctx->prec = (secp256k1_ge_storage (*)[ECMULT_GEN_PREC_N][ECMULT_GEN_PREC_G])secp256k1_ecmult_static_context;
 #endif
     secp256k1_ecmult_gen_blind(ctx, NULL);
 }
@@ -101,7 +101,7 @@ static void secp256k1_ecmult_gen_context_clone(secp256k1_ecmult_gen_context *dst
         dst->prec = NULL;
     } else {
 #ifndef USE_ECMULT_STATIC_PRECOMPUTATION
-        dst->prec = (secp256k1_ge_storage (*)[64][16])checked_malloc(cb, sizeof(*dst->prec));
+        dst->prec = (secp256k1_ge_storage (*)[ECMULT_GEN_PREC_N][ECMULT_GEN_PREC_G])checked_malloc(cb, sizeof(*dst->prec));
         memcpy(dst->prec, src->prec, sizeof(*dst->prec));
 #else
         (void)cb;
@@ -132,9 +132,9 @@ static void secp256k1_ecmult_gen(const secp256k1_ecmult_gen_context *ctx, secp25
     /* Blind scalar/point multiplication by computing (n-b)G + bG instead of nG. */
     secp256k1_scalar_add(&gnb, gn, &ctx->blind);
     add.infinity = 0;
-    for (j = 0; j < 64; j++) {
-        bits = secp256k1_scalar_get_bits(&gnb, j * 4, 4);
-        for (i = 0; i < 16; i++) {
+    for (j = 0; j < ECMULT_GEN_PREC_N; j++) {
+        bits = secp256k1_scalar_get_bits(&gnb, j * ECMULT_GEN_PREC_B, ECMULT_GEN_PREC_B);
+        for (i = 0; i < ECMULT_GEN_PREC_G; i++) {
             /** This uses a conditional move to avoid any secret data in array indexes.
              *   _Any_ use of secret indexes has been demonstrated to result in timing
              *   sidechannels, even when the cache-line access patterns are uniform.
